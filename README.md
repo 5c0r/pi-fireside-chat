@@ -64,6 +64,8 @@ Remove the cloned directory (`rm -rf ~/.omp/agent/extensions/pi-fireside-chat` o
 
 ## How dual-host compatibility works
 
+Verified live against omp v18.1.3, pi 0.83.0, and pi 0.84.4 (including scroll, Esc, and reopen under the 0.84 layout TUI).
+
 The extension imports only the `@earendil-works/*` scope:
 
 - **earendil-works/pi** resolves `@earendil-works/pi-tui`, `pi-ai`, and `pi-coding-agent` natively.
@@ -77,7 +79,7 @@ Host API differences are shimmed at runtime:
 | Active model | `ctx.model` / `ctx.models.current()` | `ctx.model` | `ctx.model ?? ctx.models?.current()` |
 | API-key resolution | `modelRegistry.resolver(model, sessionId)` | `modelRegistry.getProviderAuth(provider)` | feature-detect both |
 | User-message bubble | `Markdown(1,1)` + `bgColor`/`fgOnBg` | `Box` + `theme.bg` + `theme.fg` | `Box` pattern (works on both) |
-| Scrollback component | `ScrollView` exported | not exported | hand-drawn scrollbar column |
+| Scrollback component | `ScrollView(rows, {height, …})` | not exported in 0.83; redesigned single-child ctor in 0.84 | hand-drawn scrollbar column — no version dependency |
 | `streamSimple` context | `systemPrompt: string[]` | `systemPrompt: string` | join on pi (detected via `modelRegistry.resolver`) |
 | Session events | `session_switch` / `session_branch` | (don't exist) | register defensively; history also rebuilds per turn |
 
