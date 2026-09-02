@@ -276,9 +276,9 @@ export default function firesideExtension(pi: SidechatExtensionAPI): void {
 		return {
 			render(width: number): readonly string[] {
 				const terminalRows = process.stdout.rows ?? 40;
-				const header =
-					theme.fg("accent", "◈ fireside") +
-					theme.fg("dim", " ⋮ the conversation beside your session ⋮ Esc closes ⋮");
+			const header =
+				theme.fg("accent", "󰈸 fireside") +
+				theme.fg("dim", " ⋮ the conversation beside your session ⋮ Esc closes ⋮");
 				const body = chatBody(width - 2);
 				const inputLine =
 					theme.fg("accent", "❯ ") +
