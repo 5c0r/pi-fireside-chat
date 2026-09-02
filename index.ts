@@ -386,12 +386,12 @@ export default function firesideExtension(pi: SidechatExtensionAPI): void {
 	};
 
 	pi.registerCommand("fireside", {
-		description: "Side conversation pane following the main session (/fireside [seed msg])",
+		description: "󰈸 Side conversation pane following the main session (/fireside [seed msg])",
 		handler: commandHandler,
 	});
 	// Back-compat alias for the sidechat-era command name.
 	pi.registerCommand("sidechat", {
-		description: "Alias for /fireside",
+		description: "󰈸 Alias for /fireside",
 		handler: commandHandler,
 	});
 }
