@@ -84,7 +84,7 @@ describe("buildSidechatMessages", () => {
 		const last = messages[messages.length - 1];
 		expect(last.role).toBe("user");
 		expect(last.content).toContain("[user] q1");
-		expect(last.content).toContain("[sidechat assistant] r1");
+		expect(last.content).toContain("[fireside assistant] r1");
 		expect(last.content).toContain("q2");
 	});
 

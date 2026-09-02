@@ -15,8 +15,8 @@ export interface SidechatTurn {
 }
 
 export const SYSTEM_PROMPT = [
-	"You are sidechat, a read-only side conversation running alongside the user's main coding session.",
-	"You receive the main session transcript, your own prior sidechat exchanges, and a new question.",
+	"You are fireside, a read-only side conversation running alongside the user's main coding session.",
+	"You receive the main session transcript, your own prior fireside exchanges, and a new question.",
 	"You have no tools and cannot modify anything. Answer concisely using both contexts;",
 	"when they disagree, the freshest main-session state wins.",
 ].join(" ");
@@ -57,10 +57,10 @@ export function extractHistory(branchEntries: unknown[]): SidechatTurn[] {
  */
 export function renderSidechatPrompt(history: SidechatTurn[], question: string): string {
 	const historyText = history
-		.map(turn => `[user] ${turn.question}\n[sidechat assistant] ${turn.reply}`)
+		.map(turn => `[user] ${turn.question}\n[fireside assistant] ${turn.reply}`)
 		.join("\n");
 	return (
-		`<sidechat-history>\n${historyText.length > 0 ? historyText : "(none yet)"}\n</sidechat-history>\n` +
+		`<fireside-history>\n${historyText.length > 0 ? historyText : "(none yet)"}\n</fireside-history>\n` +
 		`<question>\n${question}\n</question>`
 	);
 }
