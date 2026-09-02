@@ -34,7 +34,6 @@ export interface TuiLike {
 export interface ThemeLike {
 	fg(color: string, text: string): string;
 	bg(color: string, text: string): string;
-	fgOnBg(color: string, background: string, text: string): string;
 }
 
 /** Host markdown theme (MarkdownTheme structural subset, host-produced pass-through). */

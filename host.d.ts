@@ -6,9 +6,10 @@
  * (legacy-pi-compat PI_SCOPE_ALIASES includes "earendil-works" — verified
  * live). This dir intentionally carries no node_modules, so tsc needs these
  * minimal shapes. Sources:
- *   - earendil-works/pi packages/ai (streamSimple), packages/tui (Markdown,
- *     matchesKey, ScrollView), packages/coding-agent barrel (buildSessionContext,
+ *   - earendil-works/pi packages/ai (streamSimple), packages/tui (Box,
+ *     Markdown, matchesKey), packages/coding-agent barrel (buildSessionContext,
  *     convertToLlm, getMarkdownTheme)
+ *   - omp v18.1.3 equivalents (same positional contracts)
  */
 
 declare module "@earendil-works/pi-ai" {
@@ -26,13 +27,22 @@ declare module "@earendil-works/pi-ai" {
 	}
 	export function streamSimple(
 		model: unknown,
-		context: { systemPrompt?: string[]; messages: unknown[]; tools?: unknown[] },
+		context: { systemPrompt?: string | string[]; messages: unknown[]; tools?: unknown[] },
 		options?: SimpleStreamOptions,
 	): Promise<AsyncIterable<SimpleStreamEvent>>;
 }
 
 declare module "@earendil-works/pi-tui" {
 	export function matchesKey(data: string, key: string): boolean;
+	export class Box {
+		constructor(
+			paddingX?: number,
+			paddingY?: number,
+			bgFn?: (text: string) => string,
+		);
+		addChild(component: { render(width: number): readonly string[] }): void;
+		render(width: number): readonly string[];
+	}
 	export class Markdown {
 		constructor(
 			text: string,
@@ -51,19 +61,6 @@ declare module "@earendil-works/pi-tui" {
 		);
 		setText(text: string): boolean;
 		invalidate(): void;
-		render(width: number): string[];
-	}
-	export class ScrollView {
-		constructor(
-			rows: readonly string[],
-			options: {
-				height: number;
-				scrollbar?: string;
-				totalRows?: number;
-				theme?: { track: (t: string) => string; thumb: (t: string) => string };
-			},
-		);
-		setScrollOffset(offset: number): void;
 		render(width: number): string[];
 	}
 }

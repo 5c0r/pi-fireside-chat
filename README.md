@@ -76,6 +76,9 @@ Host API differences are shimmed at runtime:
 | `ctx.getSystemPrompt()` | `string[]` | `string` | `Array.isArray` normalize |
 | Active model | `ctx.model` / `ctx.models.current()` | `ctx.model` | `ctx.model ?? ctx.models?.current()` |
 | API-key resolution | `modelRegistry.resolver(model, sessionId)` | `modelRegistry.getProviderAuth(provider)` | feature-detect both |
+| User-message bubble | `Markdown(1,1)` + `bgColor`/`fgOnBg` | `Box` + `theme.bg` + `theme.fg` | `Box` pattern (works on both) |
+| Scrollback component | `ScrollView` exported | not exported | hand-drawn scrollbar column |
+| `streamSimple` context | `systemPrompt: string[]` | `systemPrompt: string` | join on pi (detected via `modelRegistry.resolver`) |
 | Session events | `session_switch` / `session_branch` | (don't exist) | register defensively; history also rebuilds per turn |
 
 ## Development

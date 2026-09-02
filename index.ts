@@ -29,7 +29,7 @@ import {
 	getMarkdownTheme,
 } from "@earendil-works/pi-coding-agent";
 import { streamSimple } from "@earendil-works/pi-ai";
-import { Markdown, matchesKey, ScrollView } from "@earendil-works/pi-tui";
+import { Box, Markdown, matchesKey } from "@earendil-works/pi-tui";
 import type {
 	OpaqueModel,
 	PaneComponent,
@@ -65,6 +65,10 @@ function mainSystemPrompt(ctx: SidechatCommandContext): string[] {
 	return Array.isArray(prompt) ? prompt : [prompt];
 }
 
+/** omp's modelRegistry exposes resolver(); pi's exposes getProviderAuth(). */
+function isOmpHost(ctx: SidechatCommandContext): boolean {
+	return typeof ctx.modelRegistry.resolver === "function";
+}
 /** omp exposes ctx.model and ctx.models.current(); pi exposes ctx.model. */
 function activeModel(ctx: SidechatCommandContext): OpaqueModel | undefined {
 	return ctx.model ?? ctx.models?.current();
@@ -146,7 +150,9 @@ export default function firesideExtension(pi: SidechatExtensionAPI): void {
 			rebuild(ctx);
 
 			const messages = buildSidechatMessages(llmMessages, history, question);
-			const systemPrompt = [...mainSystemPrompt(ctx), SYSTEM_PROMPT];
+			const systemPromptLines = [...mainSystemPrompt(ctx), SYSTEM_PROMPT];
+			// pi-ai Context.systemPrompt is a single string; omp pi-ai takes string[].
+			const systemPrompt = isOmpHost(ctx) ? systemPromptLines : systemPromptLines.join("\n\n");
 
 			pane.streaming = "";
 			let reply = "";
@@ -194,23 +200,27 @@ export default function firesideExtension(pi: SidechatExtensionAPI): void {
 		pane.requestRender = () => tui.requestRender();
 		pane.close = () => done(undefined);
 		const mdTheme = getMarkdownTheme();
-		/** Renderers per committed turn — user bubble mirrors core UserMessageComponent. */
+		/** Renderers per committed turn — user bubble mirrors core UserMessageComponent
+		 * (Box + theme.bg wrapper, Markdown with theme.fg; works on both hosts). */
 		interface TurnRender {
 			turn: SidechatTurn;
-			user: Markdown;
+			user: Box;
 			reply: Markdown;
 		}
 		const turnRenders: TurnRender[] = [];
 		/** Streaming reply renderer — setText is append-optimized for deltas. */
 		let streamMd: Markdown | undefined;
 		/** Pending-question bubble renderer, rebuilt if the question changes. */
-		let pendingMd: { question: string; md: Markdown } | undefined;
+		let pendingMd: { question: string; md: Box } | undefined;
 
-		function userBubble(question: string): Markdown {
-			return new Markdown(question, 1, 1, mdTheme, {
-				bgColor: t => theme.bg("userMessageBg", t),
-				color: t => theme.fgOnBg("userMessageText", "userMessageBg", t),
-			});
+		function userBubble(question: string): Box {
+			const box = new Box(1, 1, (content: string) => theme.bg("userMessageBg", content));
+			box.addChild(
+				new Markdown(question, 0, 0, mdTheme, {
+					color: (content: string) => theme.fg("userMessageText", content),
+				}),
+			);
+			return box;
 		}
 
 		/** Rebuild cached renderers from the first history divergence (turn ref). */
@@ -251,13 +261,25 @@ export default function firesideExtension(pi: SidechatExtensionAPI): void {
 			return lines;
 		}
 
+		/** Plain-string scrollbar (omp ScrollView is not exported by pi-tui —
+		 * both hosts get the same 2-col track/thumb drawn by hand). */
+		function scrollbarColumn(totalRows: number, height: number): string[] {
+			if (totalRows <= height) return Array.from({ length: height }, () => " ");
+			const thumbSize = Math.max(1, Math.round((height * height) / totalRows));
+			const maxOffset = totalRows - height;
+			const thumbPos = Math.round((pane.scrollOffset / maxOffset) * (height - thumbSize));
+			return Array.from({ length: height }, (_, i) =>
+	i >= thumbPos && i < thumbPos + thumbSize ? "▐" : "│",
+			);
+		}
+
 		return {
 			render(width: number): readonly string[] {
 				const terminalRows = process.stdout.rows ?? 40;
 				const header =
 					theme.fg("accent", "◈ fireside") +
 					theme.fg("dim", " ⋮ the conversation beside your session ⋮ Esc closes ⋮");
-				const body = chatBody(width);
+				const body = chatBody(width - 2);
 				const inputLine =
 					theme.fg("accent", "❯ ") +
 					pane.input +
@@ -266,17 +288,13 @@ export default function firesideExtension(pi: SidechatExtensionAPI): void {
 				const maxScroll = Math.max(0, body.length - viewportRows);
 				if (pane.scrollOffset > maxScroll) pane.scrollOffset = maxScroll;
 				if (pane.followTail) pane.scrollOffset = maxScroll;
-				const view = new ScrollView(body.slice(pane.scrollOffset, pane.scrollOffset + viewportRows), {
-					height: viewportRows,
-					scrollbar: "auto",
-					totalRows: body.length,
-					theme: {
-						track: t => theme.fg("dim", t),
-						thumb: t => theme.fg("accent", t),
-					},
-				});
-				view.setScrollOffset(pane.scrollOffset);
-				return [header, ...view.render(width), "", inputLine];
+				const visible = body.slice(pane.scrollOffset, pane.scrollOffset + viewportRows);
+				const bar = scrollbarColumn(body.length, viewportRows);
+				while (visible.length < viewportRows) visible.push("");
+				const viewLines = visible.map(
+					(line, i) => line + theme.fg("dim", " ") + theme.fg(bar[i] === "▐" ? "accent" : "dim", bar[i] ?? "│"),
+				);
+				return [header, ...viewLines, "", inputLine];
 			},
 			handleInput(data: string): void {
 				const effect = applyPaneInput(pane, data, matchesKey);
