@@ -1,0 +1,14 @@
+{
+	"name": "pi-fireside-chat",
+	"version": "1.0.0",
+	"description": "Persistent side conversation pane for pi coding agents (oh-my-pi and earendil-works/pi)",
+	"type": "module",
+	"private": true,
+	"scripts": {
+		"test": "bun test",
+		"typecheck": "tsc --noEmit"
+	},
+	"pi": {
+		"extensions": ["./index.ts"]
+	}
+}
