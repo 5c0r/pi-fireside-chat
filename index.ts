@@ -199,11 +199,14 @@ export default function firesideExtension(pi: SidechatExtensionAPI): void {
 	): PaneComponent {
 		pane.requestRender = () => tui.requestRender();
 		pane.close = () => done(undefined);
-		// Host mdLink renders links blue — fireside replies keep them plain.
+		// Host themes render mdLink/mdHeading/mdCode blue (e.g. dark-github) —
+		// fireside replies keep all of them plain.
 		const mdTheme = {
 			...getMarkdownTheme(),
+			heading: (text: string) => text,
 			link: (text: string) => text,
 			linkUrl: (text: string) => text,
+			code: (text: string) => text,
 		};
 		/** Renderers per committed turn — user bubble mirrors core UserMessageComponent
 		 * (Box + theme.bg wrapper, Markdown with theme.fg; works on both hosts). */
