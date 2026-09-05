@@ -48,6 +48,10 @@ import {
 	type SidechatTurn,
 } from "./context";
 
+// ponytail: fixed product timeout; expose config only when both hosts share a setting contract.
+const REQUEST_TIMEOUT_MS = 120_000;
+const LIFECYCLE_ABORT_REASON = Symbol("fireside lifecycle cancellation");
+
 /** Type guard: message event carrying an assistant-role AgentMessage. */
 function isAssistantMessage(event: unknown): event is { message: { role: "assistant" } } {
 	if (!event || typeof event !== "object") return false;
@@ -105,19 +109,55 @@ export default function firesideExtension(pi: SidechatExtensionAPI): void {
 		requestRender: undefined as (() => void) | undefined,
 		close: undefined as (() => void) | undefined,
 	};
+	let activeRequest: { controller: AbortController; timeout: number } | undefined;
 
 	const rebuild = (ctx: { sessionManager: { getBranch(): unknown[] } }): void => {
 		history = extractHistory(ctx.sessionManager.getBranch());
+	};
+	const abortActiveRequest = (): void => {
+		const request = activeRequest;
+		if (!request) return;
+		clearTimeout(request.timeout);
+		request.controller.abort(LIFECYCLE_ABORT_REASON);
+	};
+	const transitionSession = (ctx: SidechatCommandContext): void => {
+		abortActiveRequest();
+		inFlight = undefined;
+		pane.input = "";
+		pane.streaming = undefined;
+		pane.pending = undefined;
+		pane.scrollOffset = 0;
+		pane.followTail = true;
+		rebuild(ctx);
+		pane.requestRender?.();
 	};
 
 	// omp: session_start/session_switch/session_branch/session_tree.
 	// pi: session_start/session_tree (others never fire; unknown names are inert).
 	for (const event of ["session_start", "session_switch", "session_branch", "session_tree"]) {
 		try {
-			pi.on(event, (_event, ctx) => rebuild(ctx));
+			pi.on(event, (_event, ctx) => transitionSession(ctx));
 		} catch {
 			// Host rejects unknown event names — ask() rebuilds per turn anyway.
 		}
+	}
+	try {
+		pi.on("session_shutdown", () => {
+			abortActiveRequest();
+			pane.close?.();
+			history = [];
+			inFlight = undefined;
+			pane.input = "";
+			pane.busy = false;
+			pane.streaming = undefined;
+			pane.pending = undefined;
+			pane.scrollOffset = 0;
+			pane.followTail = true;
+			pane.requestRender = undefined;
+			pane.close = undefined;
+		});
+	} catch {
+		// Older hosts reject unknown event names.
 	}
 	pi.on("message_start", event => {
 		if (isAssistantMessage(event)) inFlight = event.message;
@@ -136,6 +176,23 @@ export default function firesideExtension(pi: SidechatExtensionAPI): void {
 			ctx.ui.notify("fireside: no active model", "error");
 			return;
 		}
+		if (activeRequest) {
+			ctx.ui.notify("fireside: previous turn still streaming — reopen the pane instead", "info");
+			return;
+		}
+
+		const controller = new AbortController();
+		let rejectAbort!: (reason?: unknown) => void;
+		const aborted = new Promise<never>((_, reject) => {
+			rejectAbort = reject;
+		});
+		const rejectOnAbort = () => rejectAbort(controller.signal.reason);
+		controller.signal.addEventListener("abort", rejectOnAbort, { once: true });
+		const timeout = setTimeout(
+			() => controller.abort(new Error("fireside request timed out")),
+			REQUEST_TIMEOUT_MS,
+		);
+		activeRequest = { controller, timeout };
 		pane.busy = true;
 		pane.pending = question;
 		pane.followTail = true;
@@ -156,26 +213,31 @@ export default function firesideExtension(pi: SidechatExtensionAPI): void {
 
 			pane.streaming = "";
 			let reply = "";
-			try {
-				const events = await streamSimple(model, { systemPrompt, messages, tools: [] }, {
-					apiKey: await resolveApiKey(ctx, model),
-					signal: AbortSignal.timeout(120_000),
-				});
-				for await (const event of events) {
-					if (event.type === "text_delta" && typeof event.delta === "string") {
-						reply += event.delta;
-						pane.streaming = reply;
-						pane.followTail = true;
-						pane.requestRender?.();
-					} else if (event.type === "error") {
-						throw new Error(event.error?.errorMessage || "fireside stream failed");
-					}
+			const apiKey = await Promise.race([resolveApiKey(ctx, model), aborted]);
+			if (controller.signal.aborted) throw controller.signal.reason;
+			const events = await Promise.race([
+				streamSimple(model, { systemPrompt, messages, tools: [] }, {
+					apiKey,
+					signal: controller.signal,
+				}),
+				aborted,
+			]);
+			if (controller.signal.aborted) throw controller.signal.reason;
+			const iterator = events[Symbol.asyncIterator]();
+			while (true) {
+				const result = await Promise.race([iterator.next(), aborted]);
+				if (result.done) break;
+				if (controller.signal.aborted) throw controller.signal.reason;
+				const event = result.value;
+				if (event.type === "text_delta" && typeof event.delta === "string") {
+					reply += event.delta;
+					pane.streaming = reply;
+					pane.requestRender?.();
+				} else if (event.type === "error") {
+					throw new Error(event.error?.errorMessage || "fireside stream failed");
 				}
-			} catch (error) {
-				pane.streaming = undefined;
-				ctx.ui.notify(`fireside: ${error instanceof Error ? error.message : String(error)}`, "error");
-				return;
 			}
+			if (controller.signal.aborted) throw controller.signal.reason;
 
 			const finalReply = reply.trim();
 			pane.streaming = undefined;
@@ -185,7 +247,15 @@ export default function firesideExtension(pi: SidechatExtensionAPI): void {
 			}
 			history.push({ question, reply: finalReply });
 			pi.appendEntry(FIRESIDE_ENTRY_TYPE, { question, reply: finalReply });
+		} catch (error) {
+			pane.streaming = undefined;
+			if (controller.signal.aborted && controller.signal.reason === LIFECYCLE_ABORT_REASON) return;
+			const cause = controller.signal.aborted ? controller.signal.reason : error;
+			ctx.ui.notify(`fireside: ${cause instanceof Error ? cause.message : String(cause)}`, "error");
 		} finally {
+			clearTimeout(timeout);
+			controller.signal.removeEventListener("abort", rejectOnAbort);
+			if (activeRequest?.controller === controller) activeRequest = undefined;
 			pane.busy = false;
 			pane.pending = undefined;
 			pane.requestRender?.();
@@ -196,9 +266,13 @@ export default function firesideExtension(pi: SidechatExtensionAPI): void {
 		tui: TuiLike,
 		theme: ThemeLike,
 		done: (result: undefined) => void,
+		askCurrent: (question: string) => Promise<void>,
 	): PaneComponent {
-		pane.requestRender = () => tui.requestRender();
-		pane.close = () => done(undefined);
+		const requestRender = () => tui.requestRender();
+		const closePane = () => done(undefined);
+		pane.requestRender = requestRender;
+		pane.close = closePane;
+		let submit: ((question: string) => Promise<void>) | undefined = askCurrent;
 		// Host themes render mdLink/mdHeading/mdCode blue (e.g. dark-github) —
 		// fireside replies keep all of them plain.
 		const mdTheme = {
@@ -220,6 +294,9 @@ export default function firesideExtension(pi: SidechatExtensionAPI): void {
 		let streamMd: Markdown | undefined;
 		/** Pending-question bubble renderer, rebuilt if the question changes. */
 		let pendingMd: { question: string; md: Box } | undefined;
+		/** Scroll bounds captured by the latest render at the overlay's actual width. */
+		let renderedBodyRows = 0;
+		let renderedViewportRows = 4;
 
 		function userBubble(question: string): Box {
 			const box = new Box(1, 1, (content: string) => theme.bg("userMessageBg", content));
@@ -258,6 +335,8 @@ export default function firesideExtension(pi: SidechatExtensionAPI): void {
 					pendingMd = { question: pane.pending, md: userBubble(pane.pending) };
 				}
 				lines.push(...pendingMd.md.render(width), "");
+			} else {
+				pendingMd = undefined;
 			}
 			if (pane.streaming !== undefined) {
 				streamMd ??= new Markdown("", 0, 0, mdTheme);
@@ -277,28 +356,29 @@ export default function firesideExtension(pi: SidechatExtensionAPI): void {
 			const maxOffset = totalRows - height;
 			const thumbPos = Math.round((pane.scrollOffset / maxOffset) * (height - thumbSize));
 			return Array.from({ length: height }, (_, i) =>
-	i >= thumbPos && i < thumbPos + thumbSize ? "▐" : "│",
+				i >= thumbPos && i < thumbPos + thumbSize ? "▐" : "│",
 			);
 		}
 
 		return {
 			render(width: number): readonly string[] {
 				const terminalRows = process.stdout.rows ?? 40;
-			const header =
-				theme.fg("accent", "󰈸 fireside") +
-				theme.fg("dim", " ⋮ the conversation beside your session ⋮ Esc closes ⋮");
-				const body = chatBody(width - 2);
+				const header =
+					theme.fg("accent", "󰈸 fireside") +
+					theme.fg("dim", " ⋮ ↑/↓ · PgUp/PgDn · Home/End · Esc closes ⋮");
+				const body = chatBody(Math.max(1, width - 2));
 				const inputLine =
 					theme.fg("accent", "❯ ") +
 					pane.input +
 					(pane.busy ? theme.fg("dim", "▏ waiting for reply…") : "▏");
-				const viewportRows = Math.max(4, terminalRows - 4);
-				const maxScroll = Math.max(0, body.length - viewportRows);
+				renderedViewportRows = Math.max(4, terminalRows - 4);
+				renderedBodyRows = body.length;
+				const maxScroll = Math.max(0, renderedBodyRows - renderedViewportRows);
 				if (pane.scrollOffset > maxScroll) pane.scrollOffset = maxScroll;
 				if (pane.followTail) pane.scrollOffset = maxScroll;
-				const visible = body.slice(pane.scrollOffset, pane.scrollOffset + viewportRows);
-				const bar = scrollbarColumn(body.length, viewportRows);
-				while (visible.length < viewportRows) visible.push("");
+				const visible = body.slice(pane.scrollOffset, pane.scrollOffset + renderedViewportRows);
+				const bar = scrollbarColumn(renderedBodyRows, renderedViewportRows);
+				while (visible.length < renderedViewportRows) visible.push("");
 				const viewLines = visible.map(
 					(line, i) => line + theme.fg("dim", " ") + theme.fg(bar[i] === "▐" ? "accent" : "dim", bar[i] ?? "│"),
 				);
@@ -307,11 +387,11 @@ export default function firesideExtension(pi: SidechatExtensionAPI): void {
 			handleInput(data: string): void {
 				const effect = applyPaneInput(pane, data, matchesKey);
 				if (effect.kind === "close") {
-					done(undefined);
+					closePane();
 					return;
 				}
 				if (effect.kind === "submit") {
-					void currentAsk?.(effect.question).finally(() => tui.requestRender());
+					void submit?.(effect.question).finally(() => tui.requestRender());
 					return;
 				}
 				if (effect.kind === "render") {
@@ -319,42 +399,45 @@ export default function firesideExtension(pi: SidechatExtensionAPI): void {
 					return;
 				}
 				// kind "none": control sequences only — scroll keys.
-				const viewportRows = Math.max(4, (process.stdout.rows ?? 40) - 4);
-				const bodyRows = chatBody(process.stdout.columns ?? 120).length;
-				const maxScroll = Math.max(0, bodyRows - viewportRows);
-				if (matchesKey(data, "up")) {
+				const maxScroll = Math.max(0, renderedBodyRows - renderedViewportRows);
+				if (matchesKey(data, "home")) {
+					pane.scrollOffset = 0;
+					pane.followTail = false;
+				} else if (matchesKey(data, "end")) {
+					pane.scrollOffset = maxScroll;
+					pane.followTail = true;
+				} else if (matchesKey(data, "up")) {
 					pane.scrollOffset = Math.max(0, pane.scrollOffset - 1);
 					pane.followTail = false;
 				} else if (matchesKey(data, "down")) {
 					pane.scrollOffset = Math.min(maxScroll, pane.scrollOffset + 1);
 					pane.followTail = pane.scrollOffset >= maxScroll;
 				} else if (matchesKey(data, "pageUp")) {
-					pane.scrollOffset = Math.max(0, pane.scrollOffset - viewportRows);
+					pane.scrollOffset = Math.max(0, pane.scrollOffset - renderedViewportRows);
 					pane.followTail = false;
 				} else if (matchesKey(data, "pageDown")) {
-					pane.scrollOffset = Math.min(maxScroll, pane.scrollOffset + viewportRows);
+					pane.scrollOffset = Math.min(maxScroll, pane.scrollOffset + renderedViewportRows);
 					pane.followTail = pane.scrollOffset >= maxScroll;
 				}
 				tui.requestRender();
 			},
-			invalidate(): void {},
+			invalidate(): void { },
 			dispose(): void {
-				pane.requestRender = undefined;
+				turnRenders.length = 0;
+				streamMd = undefined;
+				pendingMd = undefined;
+				submit = undefined;
+				if (pane.close !== closePane) return;
+				if (pane.requestRender === requestRender) pane.requestRender = undefined;
 				pane.close = undefined;
 				pane.input = "";
-				pane.streaming = undefined;
+				if (!pane.busy) pane.streaming = undefined;
 				pane.scrollOffset = 0;
 				pane.followTail = true;
-				// pane.busy intentionally NOT cleared here: Esc may close the overlay
-				// while ask() still streams — only ask()'s finally may release it,
-				// otherwise a quick reopen/seed could race a concurrent turn.
-				// Same reasoning keeps pane.pending owned by ask()'s finally.
+				// pane.busy, pending, and active streaming belong to ask() until it settles.
 			},
 		};
 	}
-
-	/** The command handler's ctx for in-pane submits (latest invocation). */
-	let currentAsk: ((question: string) => Promise<void>) | undefined;
 
 	const commandHandler = async (args: string, ctx: SidechatCommandContext): Promise<void> => {
 		const seed = args.trim();
@@ -362,7 +445,6 @@ export default function firesideExtension(pi: SidechatExtensionAPI): void {
 		if (!ctx.hasUI || typeof ctx.ui.custom !== "function") {
 			// Headless: no focused surface — answer directly, notify result.
 			if (seed.length > 0) {
-				currentAsk = (question: string) => ask(ctx, question);
 				await ask(ctx, seed);
 				const last = history[history.length - 1];
 				if (last && last.question === seed) ctx.ui.notify(`fireside: ${last.reply}`, "info");
@@ -371,25 +453,37 @@ export default function firesideExtension(pi: SidechatExtensionAPI): void {
 			}
 			return;
 		}
-		currentAsk = (question: string) => ask(ctx, question);
-		rebuild(ctx);
 		if (seed === "close") {
 			pane.close?.();
 			return;
 		}
+
+		const askCurrent = (question: string) => ask(ctx, question);
+		rebuild(ctx);
 		if (seed.length > 0) {
 			if (pane.busy) {
 				ctx.ui.notify("fireside: previous turn still streaming — reopen the pane instead", "info");
 			} else {
-				void ask(ctx, seed);
+				void askCurrent(seed);
 			}
 		} else if (history.length === 0) {
 			ctx.ui.notify("Usage: /fireside [msg] — opens the side conversation pane", "info");
 		}
 		// Hold the focused pane until the user closes it (Esc / /fireside close).
 		await ctx.ui.custom<undefined>(
-			(tui, theme, _keybindings, done) => paneComponent(tui, theme, done),
-			{ overlay: true },
+			(tui, theme, _keybindings, done) => paneComponent(tui, theme, done, askCurrent),
+			{
+				overlay: true,
+				overlayOptions: isOmpHost(ctx)
+					? {
+							width: "100%",
+							maxHeight: "100%",
+							margin: 0,
+							fullscreen: true,
+							mouseTracking: false,
+						}
+					: { width: "100%", maxHeight: "100%" },
+			},
 		);
 	};
 

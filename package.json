@@ -8,6 +8,9 @@
 		"test": "bun test",
 		"typecheck": "tsc --noEmit"
 	},
+	"omp": {
+		"extensions": ["./index.ts"]
+	},
 	"pi": {
 		"extensions": ["./index.ts"]
 	}

@@ -67,7 +67,17 @@ export interface SidechatUI {
 			keybindings: unknown,
 			done: (result: T) => void,
 		) => PaneComponent | Promise<PaneComponent>,
-		options?: { overlay?: boolean; signal?: AbortSignal },
+		options?: {
+			overlay?: boolean;
+			overlayOptions?: {
+				width?: number | `${number}%`;
+				maxHeight?: number | `${number}%`;
+				margin?: number;
+				fullscreen?: boolean;
+				mouseTracking?: boolean;
+			};
+			signal?: AbortSignal;
+		},
 	): Promise<T>;
 }
 

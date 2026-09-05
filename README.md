@@ -40,7 +40,7 @@ Restart `omp` (or `/reload`), then run `/fireside hello` in any project.
 Quick test without installing:
 
 ```bash
-omp -e /path/to/pi-fireside-chat/index.ts
+omp --no-extensions -e /path/to/pi-fireside-chat/index.ts
 ```
 
 ### earendil-works/pi (`pi`)
@@ -55,7 +55,7 @@ Restart `pi` (or `/reload`), then `/fireside hello`.
 Quick test:
 
 ```bash
-pi -e /path/to/pi-fireside-chat/index.ts
+pi --no-extensions -e /path/to/pi-fireside-chat/index.ts
 ```
 
 ### Uninstall
@@ -88,7 +88,7 @@ Host API differences are shimmed at runtime:
 ```bash
 cd pi-fireside-chat
 bun install   # none needed — no runtime deps; hosts provide all imports
-bun test      # 12 tests
+bun test      # full suite
 bunx tsc --noEmit
 ```
 
@@ -98,5 +98,6 @@ No build step: both hosts load TypeScript extensions directly (Bun/jiti).
 
 - `index.ts` — entry: command registration, host shims, model-call pipeline, chat pane component
 - `context.ts` — pure logic: history extraction, message assembly, input reducer (unit-tested)
-- `context.test.ts` — `bun test` suite
+- `context.test.ts` — pure context/input tests
+- `index.test.ts` — host/lifecycle/viewport regression suite
 - `api.ts` / `host.d.ts` — compile-time shadows of the host API surface (dir carries no node_modules)
