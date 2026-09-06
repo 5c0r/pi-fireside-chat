@@ -79,10 +79,14 @@ function activeModel(ctx: SidechatCommandContext): OpaqueModel | undefined {
 }
 
 /** omp: modelRegistry.resolver(model, sessionId). pi: getProviderAuth(provider). */
-async function resolveApiKey(ctx: SidechatCommandContext, model: OpaqueModel): Promise<unknown> {
+async function resolveApiKey(
+	ctx: SidechatCommandContext,
+	model: OpaqueModel,
+	sessionId: string | undefined,
+): Promise<unknown> {
 	const registry = ctx.modelRegistry as Record<string, unknown>;
 	if (typeof registry.resolver === "function") {
-		return registry.resolver(model, ctx.sessionManager.getSessionId?.());
+		return registry.resolver(model, sessionId);
 	}
 	if (typeof registry.getProviderAuth === "function" && typeof model.provider === "string") {
 		const auth = (await registry.getProviderAuth(model.provider)) as
@@ -199,6 +203,7 @@ export default function firesideExtension(pi: SidechatExtensionAPI): void {
 		pane.requestRender?.();
 		try {
 			const sessionManager = ctx.sessionManager;
+			const sessionId = sessionManager.getSessionId?.();
 			const sessionMessages = mergeStreamingMessage(
 				buildSessionContext(sessionManager.getEntries(), sessionManager.getLeafId()).messages,
 				inFlight,
@@ -213,12 +218,13 @@ export default function firesideExtension(pi: SidechatExtensionAPI): void {
 
 			pane.streaming = "";
 			let reply = "";
-			const apiKey = await Promise.race([resolveApiKey(ctx, model), aborted]);
+			const apiKey = await Promise.race([resolveApiKey(ctx, model, sessionId), aborted]);
 			if (controller.signal.aborted) throw controller.signal.reason;
 			const events = await Promise.race([
 				streamSimple(model, { systemPrompt, messages, tools: [] }, {
 					apiKey,
 					signal: controller.signal,
+					...(sessionId ? { sessionId: `fireside:${sessionId}` } : {}),
 				}),
 				aborted,
 			]);

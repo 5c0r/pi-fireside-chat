@@ -5,7 +5,7 @@ import type { PaneComponent, SidechatContext, SidechatUI } from "./api";
 declare function setImmediate(callback: () => void): void;
 
 type StreamEvent = { type: "text_delta" | "done" | "error"; delta?: string };
-type StreamFactory = (options: { signal?: AbortSignal }) => Promise<AsyncIterable<StreamEvent>>;
+type StreamFactory = (options: { signal?: AbortSignal; sessionId?: string }) => Promise<AsyncIterable<StreamEvent>>;
 
 
 function wrap(text: string, width: number): string[] {
@@ -200,6 +200,47 @@ function heldPaneContext(base: SidechatContext) {
 		},
 	};
 }
+
+
+test("reads and namespaces host sessionId once for Fireside streams", async () => {
+	let receivedOptions: Parameters<StreamFactory>[0] = {};
+	streamFactory = async options => {
+		receivedOptions = options;
+		return {
+			async *[Symbol.asyncIterator]() {
+				yield { type: "text_delta", delta: "reply" } as const;
+			},
+		};
+	};
+	const harness = createHarness();
+	let getSessionIdCalls = 0;
+	harness.context.sessionManager.getSessionId = () => {
+		getSessionIdCalls++;
+		return "session-test";
+	};
+
+	await harness.commands.get("fireside")!("question", harness.context);
+
+	expect(receivedOptions.sessionId).toBe("fireside:session-test");
+	expect(getSessionIdCalls).toBe(1);
+});
+test("omits stream sessionId when the host has none", async () => {
+	let receivedOptions: Parameters<StreamFactory>[0] = {};
+	streamFactory = async options => {
+		receivedOptions = options;
+		return {
+			async *[Symbol.asyncIterator]() {
+				yield { type: "text_delta", delta: "reply" } as const;
+			},
+		};
+	};
+	const harness = createHarness();
+	harness.context.sessionManager.getSessionId = undefined;
+
+	await harness.commands.get("fireside")!("question", harness.context);
+
+	expect(Object.hasOwn(receivedOptions, "sessionId")).toBe(false);
+});
 
 
 for (const event of ["session_start", "session_switch", "session_branch", "session_tree", "session_shutdown"]) {
