@@ -36,7 +36,7 @@ Install directly from the git repository:
 pi install git:github.com/5c0r/pi-fireside-chat
 ```
 
-The clone lands in `~/.pi/agent/git/github.com/5c0r/pi-fireside-chat` with a pinned ref; `pi update --extensions` reconciles it. A local checkout works too: `pi install /absolute/path/to/pi-fireside-chat`.
+The clone lands in `~/.pi/agent/git/github.com/5c0r/pi-fireside-chat` and tracks the repository's default branch; `pi update --extensions` resets it to that branch's latest commit. Pin a specific ref with `pi install git:github.com/5c0r/pi-fireside-chat@<tag-or-sha>` if you need reproducibility, and a local checkout works too: `pi install /absolute/path/to/pi-fireside-chat`.
 
 Restart `pi` (or `/reload`), then run `/fireside hello`.
 
