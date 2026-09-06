@@ -30,17 +30,13 @@ The reply is an independent model call with `tools: []` — strictly read-only, 
 
 ### earendil-works/pi (`pi`)
 
-After the first npm release:
+Install directly from the git repository:
 
 ```bash
-pi install npm:pi-fireside-chat
+pi install git:github.com/5c0r/pi-fireside-chat
 ```
 
-Before publication, install a local checkout instead:
-
-```bash
-pi install /absolute/path/to/pi-fireside-chat
-```
+The clone lands in `~/.pi/agent/git/github.com/5c0r/pi-fireside-chat` with a pinned ref; `pi update --extensions` reconciles it. A local checkout works too: `pi install /absolute/path/to/pi-fireside-chat`.
 
 Restart `pi` (or `/reload`), then run `/fireside hello`.
 
@@ -67,7 +63,7 @@ omp --no-extensions -e /absolute/path/to/pi-fireside-chat
 
 ### Uninstall
 
-Run `pi remove npm:pi-fireside-chat` for the npm package, or `pi remove /absolute/path/to/pi-fireside-chat` for a local checkout. For OMP, remove `~/.omp/agent/extensions/pi-fireside-chat`.
+Run `pi remove git:github.com/5c0r/pi-fireside-chat` (or `pi remove /absolute/path/to/pi-fireside-chat` for a local checkout). For OMP, remove `~/.omp/agent/extensions/pi-fireside-chat`.
 
 ## How dual-host compatibility works
 
