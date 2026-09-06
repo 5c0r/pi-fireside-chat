@@ -28,6 +28,28 @@ The reply is an independent model call with `tools: []` — strictly read-only, 
 
 ## Installation
 
+### earendil-works/pi (`pi`)
+
+After the first npm release:
+
+```bash
+pi install npm:pi-fireside-chat
+```
+
+Before publication, install a local checkout instead:
+
+```bash
+pi install /absolute/path/to/pi-fireside-chat
+```
+
+Restart `pi` (or `/reload`), then run `/fireside hello`.
+
+Quick test without installing:
+
+```bash
+pi --no-extensions -e /absolute/path/to/pi-fireside-chat
+```
+
 ### oh-my-pi (`omp`)
 
 ```bash
@@ -40,27 +62,12 @@ Restart `omp` (or `/reload`), then run `/fireside hello` in any project.
 Quick test without installing:
 
 ```bash
-omp --no-extensions -e /path/to/pi-fireside-chat/index.ts
-```
-
-### earendil-works/pi (`pi`)
-
-```bash
-mkdir -p ~/.pi/agent/extensions
-git clone https://github.com/5c0r/pi-fireside-chat ~/.pi/agent/extensions/pi-fireside-chat
-```
-
-Restart `pi` (or `/reload`), then `/fireside hello`.
-
-Quick test:
-
-```bash
-pi --no-extensions -e /path/to/pi-fireside-chat/index.ts
+omp --no-extensions -e /absolute/path/to/pi-fireside-chat
 ```
 
 ### Uninstall
 
-Remove the cloned directory (`rm -rf ~/.omp/agent/extensions/pi-fireside-chat` or `~/.pi/agent/extensions/pi-fireside-chat`).
+Run `pi remove npm:pi-fireside-chat` for the npm package, or `pi remove /absolute/path/to/pi-fireside-chat` for a local checkout. For OMP, remove `~/.omp/agent/extensions/pi-fireside-chat`.
 
 ## How dual-host compatibility works
 
@@ -87,12 +94,25 @@ Host API differences are shimmed at runtime:
 
 ```bash
 cd pi-fireside-chat
-bun install   # none needed — no runtime deps; hosts provide all imports
-bun test      # full suite
-bunx tsc --noEmit
+bun install --frozen-lockfile --omit peer
+bun run check
 ```
 
+`--omit peer` keeps host-provided Pi APIs out of the standalone development install; `host.d.ts` supplies their compile-time surface.
+
 No build step: both hosts load TypeScript extensions directly (Bun/jiti).
+
+## Publishing
+
+Do not publish until the repository owner chooses a license, adds its license file, and records it in `package.json`.
+
+The first public package must be created with an authenticated manual `npm publish --access public`; do not commit or add an npm token to GitHub. After that first publish:
+
+1. Open the package settings on npmjs.com and add a **GitHub Actions** trusted publisher.
+2. Set owner to `5c0r`, repository to `pi-fireside-chat`, and workflow filename to `publish.yml`; allow direct `npm publish`.
+3. For later versions, update `package.json`, then publish a GitHub Release whose tag is that version with an optional `v` prefix.
+
+`.github/workflows/publish.yml` validates the tag, package, tests, and types before publishing through OIDC. Trusted publishing needs no repository secret and automatically generates provenance.
 
 ## Files
 
