@@ -29,7 +29,7 @@ import {
 	getMarkdownTheme,
 } from "@earendil-works/pi-coding-agent";
 import { streamSimple } from "@earendil-works/pi-ai";
-import { Box, Markdown, matchesKey } from "@earendil-works/pi-tui";
+import { Box, Markdown, matchesKey, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type {
 	OpaqueModel,
 	PaneComponent,
@@ -373,11 +373,14 @@ export default function firesideExtension(pi: SidechatExtensionAPI): void {
 					theme.fg("accent", "󰈸 fireside") +
 					theme.fg("dim", " ⋮ ↑/↓ · PgUp/PgDn · Home/End · Esc closes ⋮");
 				const body = chatBody(Math.max(1, width - 2));
-				const inputLine =
+				const inputLines = wrapTextWithAnsi(
 					theme.fg("accent", "❯ ") +
-					pane.input +
-					(pane.busy ? theme.fg("dim", "▏ waiting for reply…") : "▏");
-				renderedViewportRows = Math.max(4, terminalRows - 4);
+						pane.input +
+						(pane.busy ? theme.fg("dim", "▏ waiting for reply…") : "▏"),
+					Math.max(1, width),
+				);
+				// ponytail: extreme drafts may grow the overlay; host Editor is the upgrade path.
+				renderedViewportRows = Math.max(4, terminalRows - 3 - inputLines.length);
 				renderedBodyRows = body.length;
 				const maxScroll = Math.max(0, renderedBodyRows - renderedViewportRows);
 				if (pane.scrollOffset > maxScroll) pane.scrollOffset = maxScroll;
@@ -388,7 +391,7 @@ export default function firesideExtension(pi: SidechatExtensionAPI): void {
 				const viewLines = visible.map(
 					(line, i) => line + theme.fg("dim", " ") + theme.fg(bar[i] === "▐" ? "accent" : "dim", bar[i] ?? "│"),
 				);
-				return [header, ...viewLines, "", inputLine];
+				return [header, ...viewLines, "", ...inputLines];
 			},
 			handleInput(data: string): void {
 				const effect = applyPaneInput(pane, data, matchesKey);

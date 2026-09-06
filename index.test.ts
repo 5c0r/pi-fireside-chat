@@ -79,6 +79,7 @@ mock.module("@earendil-works/pi-tui", () => ({
 	Box: FakeBox,
 	Markdown: FakeMarkdown,
 	matchesKey: (data: string, key: string) => keyData[key] === data,
+	wrapTextWithAnsi: wrap,
 }));
 
 // ponytail: host modules are absent in this dependency-free repo; import only after Bun test mocks exist.
@@ -567,6 +568,32 @@ describe("fireside pane viewport", () => {
 				overlay: true,
 				overlayOptions: { width: "100%", maxHeight: "100%" },
 			});
+		} finally {
+			restore();
+		}
+	});
+
+	test("wraps a long draft within pane width without growing the overlay", async () => {
+		const restore = setTerminalSize();
+		try {
+			const harness = createHarness([], true);
+			await harness.commands.get("fireside")!("", harness.context);
+			const pane = harness.component!;
+			const width = 12;
+			const initialHeight = pane.render(width).length;
+			const draft = "abcdefghijklmnopqrstuvwxyz0123456789";
+
+			for (const char of draft) pane.handleInput(char);
+			const lines = pane.render(width);
+			const promptIndex = lines.findIndex(line => line.startsWith("❯ "));
+			const inputRows = lines.slice(promptIndex);
+
+			expect(inputRows.length).toBeGreaterThan(1);
+			expect(inputRows.every(line => line.length <= width)).toBe(true);
+			expect(inputRows.join("").replace(/^❯ /, "").replace(/▏$/, "")).toBe(draft);
+			expect(inputRows.filter(line => line.includes("❯ "))).toHaveLength(1);
+			expect(inputRows.at(-1)).toEndWith("▏");
+			expect(lines).toHaveLength(initialHeight);
 		} finally {
 			restore();
 		}

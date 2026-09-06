@@ -34,6 +34,7 @@ declare module "@earendil-works/pi-ai" {
 
 declare module "@earendil-works/pi-tui" {
 	export function matchesKey(data: string, key: string): boolean;
+	export function wrapTextWithAnsi(text: string, width: number): string[];
 	export class Box {
 		constructor(
 			paddingX?: number,
