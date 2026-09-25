@@ -1,7 +1,7 @@
 /**
  * Minimal structural types for the host extension API surface pi-fireside-chat
  * consumes. The real contracts live in each host's coding-agent package
- * (oh-my-pi v18.1.3 extensibility/extensions/types.ts; earendil-works/pi
+ * (oh-my-pi v18.3.1 extensibility/extensions/types.ts; earendil-works/pi
  * docs/extensions.md); this dir carries no node_modules, so these are the
  * compile-time shadows. Runtime host differences are shimmed in index.ts.
  */
@@ -18,10 +18,13 @@ export interface SidechatSessionManager {
 
 export interface SidechatModelQuery {
 	current(): OpaqueModel | undefined;
+	resolve?(alias: string): OpaqueModel | undefined;
+	list?(): OpaqueModel[];
 }
 
 export interface SidechatModelRegistry {
 	resolver?(model: OpaqueModel, sessionId?: string): unknown;
+	getAvailable?(): OpaqueModel[];
 	getProviderAuth?(provider: string): Promise<unknown>;
 }
 
@@ -56,6 +59,7 @@ export interface PaneComponent {
 
 export interface SidechatUI {
 	notify(message: string, type?: "info" | "warning" | "error"): void;
+	select(title: string, options: string[]): Promise<string | undefined>;
 	/**
 	 * Focused custom component (overlay page over the transcript when
 	 * `overlay: true`) — resolves when the component calls done().

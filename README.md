@@ -1,6 +1,6 @@
 # pi-fireside-chat
 
-A persistent side-conversation pane for pi coding agents. Opens a focused chat overlay (`/fireside`, alias `/sidechat`) beside your main session: ask throwaway questions, brainstorm, or sanity-check ideas without polluting the main transcript.
+A persistent side-conversation pane for pi coding agents. Opens a focused chat overlay (`/fireside`, alias `/sidechat`) beside your main session: ask throwaway questions, brainstorm, or sanity-check ideas without polluting the main transcript. Follows your main model by default.
 
 Works on **both pi hosts** from one codebase:
 
@@ -14,6 +14,8 @@ Works on **both pi hosts** from one codebase:
 - Chat-style rendering identical to the main panel: user bubbles with your theme's `userMessageBg`, assistant replies rendered as full markdown (bold, code spans, lists)
 - The question bubble renders the instant you submit — visible during model latency and streaming, with the reply streaming in below it
 - History persists per session as `fireside.turn` custom entries and survives pane close/reopen (legacy `com.sidechat.turn` entries from the sidechat era are still read)
+- `/fireside-config` — native selector for Fireside's own model, without changing the main session. On omp choose **Follow session**, **Default**, **Smol**, or **Slow**; on pi choose **Follow session** or an available `provider/model` (pi has no omp roles). Changes apply to subsequent Fireside turns; Esc cancels without changing anything.
+- Model choice persists as `fireside.model` entries on the active session branch. Closing/reopening the pane or reloading keeps it; switching sessions/branches or rewinding restores the latest reachable choice. Unavailable choices report an error and send no request; run `/fireside-config` to choose another.
 
 ## How it stays context-aware
 
@@ -25,6 +27,8 @@ Each fireside turn rebuilds context **fresh** from the main session:
 4. Prior fireside turns, encoded as one valid user message
 
 The reply is an independent model call with `tools: []` — strictly read-only, no side effects on your session.
+
+On omp, role selection resolves the configured model at request time. Its `:thinking` level is **not** inherited: the host's role resolver exposes the model, not role thinking metadata. Applying role thinking would require a host API exposing that metadata; Fireside does not parse host config.
 
 ## Installation
 
@@ -64,7 +68,7 @@ Remove the cloned directory (`rm -rf ~/.omp/agent/extensions/pi-fireside-chat` o
 
 ## How dual-host compatibility works
 
-Verified live against omp v18.1.3, pi 0.83.0, and pi 0.84.4 (including scroll, Esc, and reopen under the 0.84 layout TUI).
+Selector UI verified on omp v18.3.1 and pi 0.87.1. Earlier pane/scroll behavior was verified on omp v18.1.3, pi 0.83.0, and pi 0.84.4.
 
 The extension imports only the `@earendil-works/*` scope:
 
@@ -78,6 +82,7 @@ Host API differences are shimmed at runtime:
 | `ctx.getSystemPrompt()` | `string[]` | `string` | `Array.isArray` normalize |
 | Active model | `ctx.model` / `ctx.models.current()` | `ctx.model` | `ctx.model ?? ctx.models?.current()` |
 | API-key resolution | `modelRegistry.resolver(model, sessionId)` | `modelRegistry.getProviderAuth(provider)` | feature-detect both |
+| Fireside model choices | `ctx.models.resolve('@default'/'@smol'/'@slow')` and `list()` | `modelRegistry.getAvailable()` | host-native selector; request-time resolution |
 | User-message bubble | `Markdown(1,1)` + `bgColor`/`fgOnBg` | `Box` + `theme.bg` + `theme.fg` | `Box` pattern (works on both) |
 | Scrollback component | `ScrollView(rows, {height, …})` | not exported in 0.83; redesigned single-child ctor in 0.84 | hand-drawn scrollbar column — no version dependency |
 | `streamSimple` context | `systemPrompt: string[]` | `systemPrompt: string` | join on pi (detected via `modelRegistry.resolver`) |
@@ -88,8 +93,8 @@ Host API differences are shimmed at runtime:
 ```bash
 cd pi-fireside-chat
 bun install   # none needed — no runtime deps; hosts provide all imports
-bun test      # 12 tests
-bunx tsc --noEmit
+bun test
+bun run typecheck
 ```
 
 No build step: both hosts load TypeScript extensions directly (Bun/jiti).
@@ -97,6 +102,6 @@ No build step: both hosts load TypeScript extensions directly (Bun/jiti).
 ## Files
 
 - `index.ts` — entry: command registration, host shims, model-call pipeline, chat pane component
-- `context.ts` — pure logic: history extraction, message assembly, input reducer (unit-tested)
-- `context.test.ts` — `bun test` suite
+- `context.ts` — pure logic: history/model-choice extraction, message assembly, input reducer
+- `context.test.ts` / `index.test.ts` — Bun tests for context and selector/request behavior
 - `api.ts` / `host.d.ts` — compile-time shadows of the host API surface (dir carries no node_modules)

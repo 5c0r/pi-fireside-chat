@@ -1,17 +1,18 @@
 /**
- * pi-fireside-chat — persistent side conversation that follows the main
- * session. Works on both pi hosts:
+ * pi-fireside-chat — persistent side conversation following the main model
+ * by default. Works on both pi hosts:
  *   - oh-my-pi (omp): remaps @earendil-works/* imports to its bundled packages
  *     (PI_SCOPE_ALIASES in omp's legacy-pi-compat) — verified live.
  *   - earendil-works/pi: resolves @earendil-works/* natively.
  * Host differences are shimmed at runtime: getSystemPrompt() returns string[]
- * on omp and string on pi; model access is ctx.model ?? ctx.models.current();
+ * on omp and string on pi; default model access is ctx.model ?? ctx.models.current();
  * API-key resolution is modelRegistry.resolver (omp) or getProviderAuth (pi).
  *
  * Surface: `/fireside [msg]` (alias `/sidechat`) opens a focused overlay pane:
  * full history, live streaming reply, in-pane input (Enter submits, Esc
  * closes). History persists as `fireside.turn` custom session entries (legacy
  * `com.sidechat.turn` entries are still read) and survives close/reopen.
+ * `/fireside-config` selects an independent model on the current session branch.
  *
  * Per turn:
  *  1. context = main system prompt + main transcript rebuilt fresh:
@@ -40,10 +41,12 @@ import type {
 } from "./api";
 import {
 	FIRESIDE_ENTRY_TYPE,
+	FIRESIDE_MODEL_ENTRY_TYPE,
 	SYSTEM_PROMPT,
 	applyPaneInput,
 	buildSidechatMessages,
 	extractHistory,
+	extractModelSelection,
 	mergeStreamingMessage,
 	type SidechatTurn,
 } from "./context";
@@ -131,7 +134,25 @@ export default function firesideExtension(pi: SidechatExtensionAPI): void {
 
 	/** One fireside turn: fresh main context + history → streamed reply. */
 	async function ask(ctx: SidechatCommandContext, question: string): Promise<void> {
-		const model = activeModel(ctx);
+		const selection = extractModelSelection(ctx.sessionManager.getBranch());
+		let model = activeModel(ctx);
+		if (selection && selection !== "session") {
+			const available = isOmpHost(ctx) ? ctx.models.list?.() ?? [] : ctx.modelRegistry.getAvailable?.() ?? [];
+			if (selection.startsWith("@")) {
+				try {
+					model = ctx.models.resolve?.(selection);
+				} catch {
+					model = undefined;
+				}
+			} else {
+				model = available.find(item => `${item.provider}/${item.id}` === selection);
+			}
+			const resolved = model;
+			if (!resolved || !available.some(item => item.provider === resolved.provider && item.id === resolved.id)) {
+				ctx.ui.notify(`fireside: selected model ${selection} unavailable; run /fireside-config to choose another`, "error");
+				return;
+			}
+		}
 		if (!model) {
 			ctx.ui.notify("fireside: no active model", "error");
 			return;
@@ -393,8 +414,51 @@ export default function firesideExtension(pi: SidechatExtensionAPI): void {
 		);
 	};
 
+	pi.registerCommand("fireside-config", {
+		description: "Select Fireside's model without changing the main session",
+		handler: async (_args, ctx) => {
+			if (!ctx.hasUI) {
+				ctx.ui.notify("fireside: model selector requires an interactive UI", "error");
+				return;
+			}
+			const choices: Array<[string, string]> = [];
+			const available = isOmpHost(ctx) ? ctx.models.list?.() ?? [] : ctx.modelRegistry.getAvailable?.() ?? [];
+			if (isOmpHost(ctx)) {
+				// ponytail: role resolution supplies Model but not :thinking; host role-metadata API would enable that later.
+				for (const role of ["default", "smol", "slow"]) {
+					let model: OpaqueModel | undefined;
+					try {
+						model = ctx.models.resolve?.(`@${role}`);
+					} catch {
+						continue;
+					}
+					if (model && available.some(item => item.provider === model.provider && item.id === model.id)) {
+						choices.push([`${role[0].toUpperCase()}${role.slice(1)} · ${model.provider}/${model.id}`, `@${role}`]);
+					}
+				}
+			} else {
+				for (const model of available) {
+					if (typeof model.provider === "string" && typeof model.id === "string") {
+						const label = `${model.provider}/${model.id}`;
+						choices.push([label, label]);
+					}
+				}
+			}
+			const current = extractModelSelection(ctx.sessionManager.getBranch()) ?? "session";
+			const currentLabel = current === "session" ? "Follow session" : choices.find(([, value]) => value === current)?.[0] ?? current;
+			const selected = await ctx.ui.select(`Fireside model (current: ${currentLabel})`, ["Follow session", ...choices.map(([label]) => label)]);
+			if (selected === undefined) return;
+			if (selected === "Follow session") {
+				pi.appendEntry(FIRESIDE_MODEL_ENTRY_TYPE, { model: "session" });
+			} else {
+				const choice = choices.find(([label]) => label === selected);
+				if (choice) pi.appendEntry(FIRESIDE_MODEL_ENTRY_TYPE, { model: choice[1] });
+			}
+		},
+	});
+
 	pi.registerCommand("fireside", {
-		description: "󰈸 Side conversation pane following the main session (/fireside [seed msg])",
+		description: "󰈸 Side conversation pane (/fireside [seed msg])",
 		handler: commandHandler,
 	});
 	// Back-compat alias for the sidechat-era command name.

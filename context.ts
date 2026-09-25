@@ -7,6 +7,21 @@
  */
 
 export const FIRESIDE_ENTRY_TYPE = "fireside.turn";
+export const FIRESIDE_MODEL_ENTRY_TYPE = "fireside.model";
+
+/** Latest reachable choice on this branch; absence follows the session. */
+export function extractModelSelection(branch: unknown[]): string | undefined {
+	for (let i = branch.length - 1; i >= 0; i--) {
+		const entry = branch[i];
+		if (!entry || typeof entry !== "object") continue;
+		const { type, customType, data } = entry as Record<string, unknown>;
+		if (type !== "custom" || customType !== FIRESIDE_MODEL_ENTRY_TYPE || !data || typeof data !== "object") continue;
+		const selection = (data as Record<string, unknown>).model;
+		if (typeof selection === "string" && selection.length > 0) return selection;
+	}
+	return undefined;
+}
+
 /** Historical type written by the sidechat-era builds; still read for history continuity. */
 const LEGACY_ENTRY_TYPES = ["com.sidechat.turn"];
 export interface SidechatTurn {
