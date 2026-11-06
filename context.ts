@@ -7,18 +7,33 @@
  */
 
 export const FIRESIDE_ENTRY_TYPE = "fireside.turn";
+export const FIRESIDE_MODEL_ENTRY_TYPE = "fireside.model";
+
+/** Latest reachable choice on this branch; absence follows the session. */
+export function extractModelSelection(branch: unknown[]): string | undefined {
+ for (let i = branch.length - 1; i >= 0; i--) {
+  const entry = branch[i];
+  if (!entry || typeof entry !== "object") continue;
+  const { type, customType, data } = entry as Record<string, unknown>;
+  if (type !== "custom" || customType !== FIRESIDE_MODEL_ENTRY_TYPE || !data || typeof data !== "object") continue;
+  const selection = (data as Record<string, unknown>).model;
+  if (typeof selection === "string" && selection.length > 0) return selection;
+ }
+ return undefined;
+}
+
 /** Historical type written by the sidechat-era builds; still read for history continuity. */
 const LEGACY_ENTRY_TYPES = ["com.sidechat.turn"];
 export interface SidechatTurn {
-	question: string;
-	reply: string;
+ question: string;
+ reply: string;
 }
 
 export const SYSTEM_PROMPT = [
-	"You are fireside, a read-only side conversation running alongside the user's main coding session.",
-	"You receive the main session transcript, your own prior fireside exchanges, and a new question.",
-	"You have no tools and cannot modify anything. Answer concisely using both contexts;",
-	"when they disagree, the freshest main-session state wins.",
+ "You are fireside, a read-only side conversation running alongside the user's main coding session.",
+ "You receive the main session transcript, your own prior fireside exchanges, and a new question.",
+ "You have no tools and cannot modify anything. Answer concisely using both contexts;",
+ "when they disagree, the freshest main-session state wins.",
 ].join(" ");
 
 /** Read-only by construction: sidechat registers no tools. Asserted in tests. */
@@ -30,22 +45,22 @@ export const DECLARED_TOOLS: string[] = [];
  * `type === "custom"` and our namespaced `customType`, order preserved.
  */
 export function extractHistory(branchEntries: unknown[]): SidechatTurn[] {
-	const out: SidechatTurn[] = [];
-	for (const entry of branchEntries) {
-		const e = entry as Record<string, unknown>;
-		if (e.type !== "custom") continue;
-		if (e.customType !== FIRESIDE_ENTRY_TYPE && !LEGACY_ENTRY_TYPES.includes(e.customType as string)) continue;
-		const data = e.data as Record<string, unknown> | undefined;
-		if (
-			data &&
-			typeof data.question === "string" &&
-			typeof data.reply === "string" &&
-			data.question.length > 0
-		) {
-			out.push({ question: data.question, reply: data.reply });
-		}
-	}
-	return out;
+ const out: SidechatTurn[] = [];
+ for (const entry of branchEntries) {
+  const e = entry as Record<string, unknown>;
+  if (e.type !== "custom") continue;
+  if (e.customType !== FIRESIDE_ENTRY_TYPE && !LEGACY_ENTRY_TYPES.includes(e.customType as string)) continue;
+  const data = e.data as Record<string, unknown> | undefined;
+  if (
+   data &&
+   typeof data.question === "string" &&
+   typeof data.reply === "string" &&
+   data.question.length > 0
+  ) {
+   out.push({ question: data.question, reply: data.reply });
+  }
+ }
+ return out;
 }
 
 /**
@@ -56,13 +71,13 @@ export function extractHistory(branchEntries: unknown[]): SidechatTurn[] {
  * history rides inside a valid user message instead.
  */
 export function renderSidechatPrompt(history: SidechatTurn[], question: string): string {
-	const historyText = history
-		.map(turn => `[user] ${turn.question}\n[fireside assistant] ${turn.reply}`)
-		.join("\n");
-	return (
-		`<fireside-history>\n${historyText.length > 0 ? historyText : "(none yet)"}\n</fireside-history>\n` +
-		`<question>\n${question}\n</question>`
-	);
+ const historyText = history
+  .map(turn => `[user] ${turn.question}\n[fireside assistant] ${turn.reply}`)
+  .join("\n");
+ return (
+  `<fireside-history>\n${historyText.length > 0 ? historyText : "(none yet)"}\n</fireside-history>\n` +
+  `<question>\n${question}\n</question>`
+ );
 }
 /**
  * /btw parity: a sidechat turn fired mid-stream must see the main session
@@ -72,10 +87,10 @@ export function renderSidechatPrompt(history: SidechatTurn[], question: string):
  * it here, appended after the persisted path (it is chronologically newest).
  */
 export function mergeStreamingMessage(sessionMessages: readonly unknown[], streaming: unknown): unknown[] {
-	if (!streaming || typeof streaming !== "object") return [...sessionMessages];
-	const role = (streaming as Record<string, unknown>).role;
-	if (role !== "assistant") return [...sessionMessages];
-	return [...sessionMessages, streaming];
+ if (!streaming || typeof streaming !== "object") return [...sessionMessages];
+ const role = (streaming as Record<string, unknown>).role;
+ if (role !== "assistant") return [...sessionMessages];
+ return [...sessionMessages, streaming];
 }
 /**
  * Assemble the LLM message list for one sidechat turn.
@@ -85,25 +100,25 @@ export function mergeStreamingMessage(sessionMessages: readonly unknown[], strea
  * user message is appended, carrying sidechat history + the new question.
  */
 export function buildSidechatMessages(
-	mainLlmMessages: readonly unknown[],
-	history: SidechatTurn[],
-	question: string,
+ mainLlmMessages: readonly unknown[],
+ history: SidechatTurn[],
+ question: string,
 ): unknown[] {
-	return [...mainLlmMessages, { role: "user", content: renderSidechatPrompt(history, question) }];
+ return [...mainLlmMessages, { role: "user", content: renderSidechatPrompt(history, question) }];
 }
 
 
 /** Result of one pane input event (pure reducer; side effects stay in the component). */
 export type PaneInputEffect =
-	| { kind: "none" }
-	| { kind: "render" }
-	| { kind: "close" }
-	| { kind: "submit"; question: string };
+ | { kind: "none" }
+ | { kind: "render" }
+ | { kind: "close" }
+ | { kind: "submit"; question: string };
 
 export interface PaneInputState {
-	input: string;
-	/** A turn is streaming: Enter is ignored so concurrent asks cannot race. */
-	busy: boolean;
+ input: string;
+ /** A turn is streaming: Enter is ignored so concurrent asks cannot race. */
+ busy: boolean;
 }
 
 
@@ -113,29 +128,29 @@ export interface PaneInputState {
  * preserved so it can be re-submitted once the turn completes.
  */
 export function applyPaneInput(
-	state: PaneInputState,
-	data: string,
-	isKey: (data: string, key: string) => boolean,
+ state: PaneInputState,
+ data: string,
+ isKey: (data: string, key: string) => boolean,
 ): PaneInputEffect {
-	if (isKey(data, "escape")) return { kind: "close" };
-	if (isKey(data, "enter") || data === "\r" || data === "\n") {
-		if (state.busy) return { kind: "render" };
-		const question = state.input.trim();
-		if (question.length === 0) return { kind: "render" };
-		state.input = "";
-		return { kind: "submit", question };
-	}
-	if (data === "\x7f" || data === "\b") {
-		state.input = state.input.slice(0, -1);
-		return { kind: "render" };
-	}
-	if (data === "\x15") {
-		state.input = "";
-		return { kind: "render" };
-	}
-	if (!/[\x00-\x1f\x7f]/.test(data)) {
-		state.input += data;
-		return { kind: "render" };
-	}
-	return { kind: "none" };
+ if (isKey(data, "escape")) return { kind: "close" };
+ if (isKey(data, "enter") || data === "\r" || data === "\n") {
+  if (state.busy) return { kind: "render" };
+  const question = state.input.trim();
+  if (question.length === 0) return { kind: "render" };
+  state.input = "";
+  return { kind: "submit", question };
+ }
+ if (data === "\x7f" || data === "\b") {
+  state.input = state.input.slice(0, -1);
+  return { kind: "render" };
+ }
+ if (data === "\x15") {
+  state.input = "";
+  return { kind: "render" };
+ }
+ if (!/[\x00-\x1f\x7f]/.test(data)) {
+  state.input += data;
+  return { kind: "render" };
+ }
+ return { kind: "none" };
 }
